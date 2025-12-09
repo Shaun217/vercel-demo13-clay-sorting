@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon AR Shooter</title>
+    <link rel="stylesheet" href="style.css">
+    
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+</head>
+<body>
+
+    <video id="input-video" playsinline></video>
+
+    <canvas id="game-canvas"></canvas>
+
+    <div id="ui-layer">
+        
+        <div id="hud">
+            <div class="hud-panel">
+                <span id="player-name-display">PLAYER 1</span>
+            </div>
+            <div class="hud-panel timer-panel">
+                <span id="timer-display">30</span>
+            </div>
+            <div class="hud-panel">
+                <div id="score-details">
+                    <span style="color:#ff3333">R:0</span> 
+                    <span style="color:#ffff33">Y:0</span> 
+                    <span style="color:#33ff33">G:0</span>
+                </div>
+                <div id="total-score">SCORE: 0</div>
+            </div>
+        </div>
+
+        <div id="setup-screen" class="menu-screen active">
+            <h1>Neon AR Shooter</h1>
+            <h2>Local Multiplayer Setup</h2>
+            <p>How many players?</p>
+            <input type="number" id="player-count-input" min="1" max="10" value="1">
+            <button id="btn-setup-next">Next</button>
+        </div>
+
+        <div id="name-screen" class="menu-screen">
+            <h1>Player <span id="current-player-num">1</span></h1>
+            <h2>Enter Your Name</h2>
+            <input type="text" id="player-name-input" placeholder="Player 1">
+            <button id="btn-start-game">Start Mission</button>
+            <p class="instruction">Make a "Gun" gesture with your hand.<br>Flick index finger UP to shoot.</p>
+        </div>
+
+        <div id="transition-screen" class="menu-screen">
+            <h1>Time's Up!</h1>
+            <h2 id="round-score">Score: 0</h2>
+            <div id="round-stats"></div>
+            <button id="btn-next-player">Next Player</button>
+        </div>
+
+        <div id="leaderboard-screen" class="menu-screen">
+            <h1>Game Over</h1>
+            <div class="podium-container">
+                <div class="podium-step step-2"><span id="winner-2"></span><div class="bar">2</div></div>
+                <div class="podium-step step-1"><span id="winner-1"></span><div class="bar">1</div></div>
+                <div class="podium-step step-3"><span id="winner-3"></span><div class="bar">3</div></div>
+            </div>
+            <ul id="score-list"></ul>
+            <button id="btn-restart">Play Again</button>
+        </div>
+
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
