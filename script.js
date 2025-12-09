@@ -19,10 +19,10 @@ let appState = STATE.SETUP;
 let players = [];
 let currentPlayerIndex = 0;
 let roundTimer = 0;
-let lastSpawnTime = 0;
+let nextSpawnTime = 0; // Fixed: Track exact time for next spawn
 let score = 0;
 let hitCounts = { r: 0, y: 0, g: 0 };
-let gameInterval, spawnTimer;
+let gameInterval;
 
 // --- Canvas & Audio Setup ---
 const canvas = document.getElementById('game-canvas');
@@ -46,30 +46,32 @@ function playSound(type) {
     osc.connect(gainNode);
     gainNode.connect(audioCtx.destination);
 
+    const now = audioCtx.currentTime;
+
     if (type === 'shoot') {
         osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(800, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.1);
-        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.1);
+        osc.frequency.setValueAtTime(800, now);
+        osc.frequency.exponentialRampToValueAtTime(100, now + 0.1);
+        gainNode.gain.setValueAtTime(0.1, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+        osc.start(now);
+        osc.stop(now + 0.1);
     } else if (type === 'hit') {
         osc.type = 'square';
-        osc.frequency.setValueAtTime(200, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.1);
-        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.1);
+        osc.frequency.setValueAtTime(200, now);
+        osc.frequency.exponentialRampToValueAtTime(50, now + 0.1);
+        gainNode.gain.setValueAtTime(0.1, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+        osc.start(now);
+        osc.stop(now + 0.1);
     } else if (type === 'win') {
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(400, audioCtx.currentTime);
-        osc.frequency.linearRampToValueAtTime(800, audioCtx.currentTime + 0.5);
-        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
-        gainNode.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 1);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 1);
+        osc.frequency.setValueAtTime(400, now);
+        osc.frequency.linearRampToValueAtTime(800, now + 0.5);
+        gainNode.gain.setValueAtTime(0.1, now);
+        gainNode.gain.linearRampToValueAtTime(0, now + 1);
+        osc.start(now);
+        osc.stop(now + 1);
     }
 }
 
@@ -81,7 +83,7 @@ let lastTipY = 0; // For recoil detection
 
 class Target {
     constructor() {
-        this.y = Math.random() * (canvas.height - 200) + 100;
+        this.y = Math.random() * (canvas.height * 0.6) + (canvas.height * 0.2); // Keep within middle 60% of screen
         this.radius = 0;
         this.speed = 0;
         this.points = 0;
@@ -93,37 +95,40 @@ class Target {
         if (r < 0.2) { // Red (Fast/Small)
             this.type = 'red';
             this.radius = 30;
-            this.speed = 8;
+            this.speed = 10; // Faster
             this.points = 50;
             this.color = '#ff3333';
         } else if (r < 0.5) { // Yellow (Med)
             this.type = 'yellow';
             this.radius = 50;
-            this.speed = 5;
+            this.speed = 6;
             this.points = 20;
             this.color = '#ffff33';
         } else { // Green (Slow/Big)
             this.type = 'green';
             this.radius = 70;
-            this.speed = 3;
+            this.speed = 4;
             this.points = 10;
             this.color = '#33ff33';
         }
 
         // Direction: Left->Right or Right->Left
         if (Math.random() > 0.5) {
-            this.x = -this.radius;
+            this.x = -this.radius * 2; // Start completely off-screen left
             this.vx = this.speed;
         } else {
-            this.x = canvas.width + this.radius;
+            this.x = canvas.width + this.radius * 2; // Start completely off-screen right
             this.vx = -this.speed;
         }
     }
 
     update() {
         this.x += this.vx;
-        // Kill if off screen
-        if ((this.vx > 0 && this.x > canvas.width + 100) || (this.vx < 0 && this.x < -100)) {
+        
+        // Kill if completely off screen
+        const buffer = 200;
+        if ((this.vx > 0 && this.x > canvas.width + buffer) || 
+            (this.vx < 0 && this.x < -buffer)) {
             this.isDead = true;
         }
     }
@@ -131,13 +136,13 @@ class Target {
     draw(ctx) {
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)'; // Darker background for visibility
         ctx.fill();
         ctx.lineWidth = 4;
         ctx.strokeStyle = this.color;
         ctx.stroke();
         
-        // Inner rings
+        // Bullseye rings
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.radius * 0.6, 0, Math.PI * 2);
         ctx.stroke();
@@ -154,8 +159,8 @@ class Particle {
         this.x = x;
         this.y = y;
         this.color = color;
-        this.vx = (Math.random() - 0.5) * 10;
-        this.vy = (Math.random() - 0.5) * 10;
+        this.vx = (Math.random() - 0.5) * 15;
+        this.vy = (Math.random() - 0.5) * 15;
         this.life = 1.0;
     }
     update() {
@@ -164,7 +169,7 @@ class Particle {
         this.life -= 0.05;
     }
     draw(ctx) {
-        ctx.globalAlpha = this.life;
+        ctx.globalAlpha = Math.max(0, this.life);
         ctx.fillStyle = this.color;
         ctx.beginPath();
         ctx.arc(this.x, this.y, 4, 0, Math.PI * 2);
@@ -201,7 +206,6 @@ function onResults(results) {
     // 1. Draw Video Feed
     ctx.save();
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    // Mirror video
     ctx.translate(canvas.width, 0);
     ctx.scale(-1, 1);
     ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
@@ -214,18 +218,16 @@ function onResults(results) {
     if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
         const landmarks = results.multiHandLandmarks[0];
         
-        // Coordinates: Landmark 8 is Index Tip
-        // Note: Coordinates are normalized 0-1, need to flip X because of mirroring
+        // Flip X coord because we mirrored the video draw
         rawX = (1 - landmarks[8].x) * canvas.width; 
         rawY = landmarks[8].y * canvas.height;
 
-        // Simple Gun Gesture Check: Index extended, Pinky curled
         const indexTip = landmarks[8];
         const indexDip = landmarks[7];
         const pinkyTip = landmarks[20];
         const pinkyMcp = landmarks[17];
 
-        const isIndexExtended = indexTip.y < indexDip.y; // Y increases downward
+        const isIndexExtended = indexTip.y < indexDip.y; 
         const isPinkyCurled = pinkyTip.y > pinkyMcp.y;
 
         if (isIndexExtended && isPinkyCurled) {
@@ -234,18 +236,14 @@ function onResults(results) {
     }
 
     if (appState === STATE.PLAYING) {
-        // Handle Aiming
+        // Aiming
         if (isGunGesture) {
-            // Lerp smoothing
             crosshair.x = crosshair.x + (rawX - crosshair.x) * GAME_CFG.SMOOTHING;
             crosshair.y = crosshair.y + (rawY - crosshair.y) * GAME_CFG.SMOOTHING;
             crosshair.active = true;
 
-            // Handle Shooting (Recoil Detection)
-            // Calculate vertical velocity: Previous Y - Current Y
-            // If positive and large, finger moved UP quickly
+            // Recoil
             const deltaY = lastTipY - rawY; 
-            
             if (deltaY > GAME_CFG.RECOIL_THRESHOLD) {
                 fireShot();
             }
@@ -254,38 +252,50 @@ function onResults(results) {
             crosshair.active = false;
         }
 
-        // Draw Game Elements
         drawGame(ctx);
     }
 }
 
 function drawGame(ctx) {
-    // 1. Update & Draw Targets
     const now = Date.now();
-    if (now - lastSpawnTime > (Math.random() * (GAME_CFG.SPAWN_RATE_MAX - GAME_CFG.SPAWN_RATE_MIN) + GAME_CFG.SPAWN_RATE_MIN)) {
+
+    // 1. Spawning Logic (Fixed)
+    if (now >= nextSpawnTime) {
         targets.push(new Target());
-        lastSpawnTime = now;
+        // Calculate next spawn time immediately
+        const randomDelay = Math.random() * (GAME_CFG.SPAWN_RATE_MAX - GAME_CFG.SPAWN_RATE_MIN) + GAME_CFG.SPAWN_RATE_MIN;
+        nextSpawnTime = now + randomDelay;
     }
 
-    targets.forEach((t, index) => {
+    // 2. Update & Draw Targets (Fixed Loop)
+    // Iterate backwards to safely remove items
+    for (let i = targets.length - 1; i >= 0; i--) {
+        let t = targets[i];
         t.update();
         t.draw(ctx);
-        if (t.isDead) targets.splice(index, 1);
-    });
+        if (t.isDead) {
+            targets.splice(i, 1);
+        }
+    }
 
-    // 2. Update & Draw Particles
-    particles.forEach((p, index) => {
+    // 3. Update & Draw Particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+        let p = particles[i];
         p.update();
         p.draw(ctx);
-        if (p.life <= 0) particles.splice(index, 1);
-    });
+        if (p.life <= 0) {
+            particles.splice(i, 1);
+        }
+    }
 
-    // 3. Draw Crosshair
+    // 4. Draw Crosshair
     if (crosshair.active) {
         ctx.strokeStyle = '#00ffff';
         ctx.lineWidth = 3;
         ctx.beginPath();
         ctx.arc(crosshair.x, crosshair.y, 20, 0, Math.PI * 2);
+        
+        // Scope lines
         ctx.moveTo(crosshair.x - 30, crosshair.y);
         ctx.lineTo(crosshair.x + 30, crosshair.y);
         ctx.moveTo(crosshair.x, crosshair.y - 30);
@@ -297,11 +307,11 @@ function drawGame(ctx) {
 function fireShot() {
     playSound('shoot');
     
-    // Visual flash
+    // Flash
     ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Collision Check
+    // Collision
     for (let i = targets.length - 1; i >= 0; i--) {
         const t = targets[i];
         const dx = crosshair.x - t.x;
@@ -309,7 +319,6 @@ function fireShot() {
         const dist = Math.sqrt(dx*dx + dy*dy);
 
         if (dist < t.radius) {
-            // HIT!
             playSound('hit');
             score += t.points;
             if (t.type === 'red') hitCounts.r++;
@@ -317,19 +326,18 @@ function fireShot() {
             if (t.type === 'green') hitCounts.g++;
             updateHUD();
 
-            // Create explosion
-            for (let j = 0; j < 10; j++) {
+            // Particles
+            for (let j = 0; j < 12; j++) {
                 particles.push(new Particle(t.x, t.y, t.color));
             }
             
             targets.splice(i, 1);
-            break; // Bullet hits only one target
+            break; 
         }
     }
 }
 
-// --- UI Logic & Flow ---
-
+// --- UI Logic ---
 const ui = {
     setup: document.getElementById('setup-screen'),
     name: document.getElementById('name-screen'),
@@ -338,7 +346,6 @@ const ui = {
     leader: document.getElementById('leaderboard-screen')
 };
 
-// Button Events
 document.getElementById('btn-setup-next').onclick = () => {
     const count = parseInt(document.getElementById('player-count-input').value);
     for(let i=0; i<count; i++) players.push({name: `P${i+1}`, score: 0});
@@ -378,7 +385,7 @@ function setupPlayerTurn() {
 }
 
 function startGame() {
-    // Reset Round
+    // Reset Everything
     appState = STATE.PLAYING;
     score = 0;
     hitCounts = {r:0, y:0, g:0};
@@ -386,13 +393,14 @@ function startGame() {
     particles = [];
     roundTimer = GAME_CFG.ROUND_TIME;
     
+    // Set first spawn to happen immediately
+    nextSpawnTime = Date.now(); 
+    
     document.getElementById('player-name-display').innerText = players[currentPlayerIndex].name;
     updateHUD();
 
-    // Init Audio Context (needs interaction)
-    if (!audioCtx) playSound('hit');
+    if (!audioCtx) playSound('hit'); // Init audio
 
-    // Timer Interval
     clearInterval(gameInterval);
     gameInterval = setInterval(() => {
         roundTimer--;
@@ -429,15 +437,12 @@ function showLeaderboard() {
     ui.trans.classList.remove('active');
     ui.leader.classList.add('active');
     
-    // Sort players
     const sorted = [...players].sort((a,b) => b.score - a.score);
     
-    // Podium
     if(sorted[0]) document.getElementById('winner-1').innerText = `${sorted[0].name}\n${sorted[0].score}`;
     if(sorted[1]) document.getElementById('winner-2').innerText = `${sorted[1].name}\n${sorted[1].score}`;
     if(sorted[2]) document.getElementById('winner-3').innerText = `${sorted[2].name}\n${sorted[2].score}`;
 
-    // List
     const list = document.getElementById('score-list');
     list.innerHTML = '';
     sorted.forEach((p, i) => {
