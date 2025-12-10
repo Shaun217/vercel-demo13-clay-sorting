@@ -1,376 +1,458 @@
-// --- 1. Audio (Cute Pop Sound) ---
+// --- Configuration ---
+const COLORS = {
+    bg: 0x1A2F23,   // Pine Green
+    red: 0xD42E2E,  // Christmas Red
+    gold: 0xF1C40F, // Bell Gold
+    green: 0x27AE60,// Tree Green
+    brown: 0x8B4513,// Tree Trunk
+    white: 0xFDF8F5,
+    darkIcon: 0x2C3E50
+};
+
+const SHAPE_COUNT = 10;
+
+// --- Audio ---
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-function playPop() {
+function playSound(type) {
     if(audioCtx.state === 'suspended') audioCtx.resume();
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     const now = audioCtx.currentTime;
-    
-    osc.frequency.setValueAtTime(600, now);
-    osc.frequency.exponentialRampToValueAtTime(1200, now + 0.1);
-    
-    gain.gain.setValueAtTime(0.3, now);
-    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+
+    if (type === 'pop') {
+        osc.frequency.setValueAtTime(400, now);
+        osc.frequency.exponentialRampToValueAtTime(800, now + 0.1);
+        gain.gain.setValueAtTime(0.3, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+    } else if (type === 'win') {
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(500, now);
+        osc.frequency.linearRampToValueAtTime(1000, now + 0.5);
+        gain.gain.setValueAtTime(0.3, now);
+        gain.gain.linearRampToValueAtTime(0, now + 0.8);
+    }
     
     osc.connect(gain);
     gain.connect(audioCtx.destination);
     osc.start(now);
-    osc.stop(now + 0.1);
+    osc.stop(now + 0.8);
 }
 
-// --- 2. Game Logic ---
+// --- Game Logic ---
 const game = {
-    state: 'SETUP',
-    players: [],
-    currIdx: 0,
-    score: 0,
+    playerName: "Player",
+    remaining: 0,
     startTime: 0,
-    timer: null,
+    timerInterval: null,
+    
+    screens: {
+        start: document.getElementById('screen-start'),
+        hud: document.getElementById('hud'),
+        result: document.getElementById('screen-result')
+    },
+
+    showScreen: (name) => {
+        Object.values(game.screens).forEach(el => {
+            el.classList.remove('active');
+            el.style.display = 'none'; 
+        });
+        
+        if(name === 'hud') {
+            game.screens.hud.style.display = 'flex';
+        } else {
+            game.screens[name].style.display = 'flex';
+            setTimeout(() => game.screens[name].classList.add('active'), 10);
+        }
+    },
 
     init: () => {
-        document.getElementById('btn-start').onclick = game.setupPlayers;
-        document.getElementById('btn-play').onclick = game.startRound;
-        document.getElementById('btn-restart-panel').onclick = () => location.reload();
-    },
-
-    setupPlayers: () => {
-        const count = parseInt(document.getElementById('input-players').value) || 1;
-        game.totalPlayers = count;
-        game.switchScreen('screen-name');
-        game.updateTitle();
-    },
-
-    updateTitle: () => {
-        document.getElementById('player-title').innerText = `Player ${game.currIdx + 1}`;
-        document.getElementById('input-name').value = `Player ${game.currIdx + 1}`;
+        game.showScreen('start');
     },
 
     startRound: () => {
-        const name = document.getElementById('input-name').value;
-        game.players[game.currIdx] = { name, time: 999 };
+        const nameInput = document.getElementById('input-name').value;
+        game.playerName = nameInput || "Santa's Helper";
         
-        game.switchScreen(null); // Clear UI
-        document.getElementById('hud').style.display = 'flex';
+        // Reset Data
+        game.remaining = SHAPE_COUNT;
+        document.getElementById('hud-remaining').innerText = game.remaining;
         
-        scene3D.spawnShapes();
-        game.score = 0;
-        document.getElementById('hud-score').innerText = `0/10`;
+        game.showScreen('hud');
+        
+        // Spawn 3D objects
+        scene3D.clearShapes();
+        scene3D.spawnShapes(SHAPE_COUNT);
+        
+        // Start Timer
         game.startTime = Date.now();
+        clearInterval(game.timerInterval);
         
-        let timeLeft = 60;
-        document.getElementById('hud-timer').innerText = `${timeLeft}s`;
-        
-        game.timer = setInterval(() => {
-            timeLeft--;
-            document.getElementById('hud-timer').innerText = `${timeLeft}s`;
-            if(timeLeft <= 0) game.endRound(false);
-        }, 1000);
+        game.timerInterval = setInterval(() => {
+            const now = Date.now();
+            const elapsed = (now - game.startTime) / 1000;
+            document.getElementById('hud-timer').innerText = elapsed.toFixed(1) + 's';
+        }, 100);
     },
 
-    scorePoint: () => {
-        game.score++;
-        document.getElementById('hud-score').innerText = `${game.score}/10`;
-        playPop();
-        if(game.score >= 10) game.endRound(true);
-    },
-
-    endRound: (completed) => {
-        clearInterval(game.timer);
-        const time = completed ? (Date.now() - game.startTime)/1000 : 60;
-        game.players[game.currIdx].time = time;
+    onShapeSorted: () => {
+        game.remaining--;
+        document.getElementById('hud-remaining').innerText = game.remaining;
+        playSound('pop');
         
-        game.currIdx++;
-        if(game.currIdx < game.totalPlayers) {
-            game.switchScreen('screen-name');
-            game.updateTitle();
-        } else {
-            game.showLeaderboard();
+        if (game.remaining <= 0) {
+            game.endRound();
         }
-        document.getElementById('hud').style.display = 'none';
     },
 
-    showLeaderboard: () => {
-        game.switchScreen('screen-leaderboard');
-        const sorted = [...game.players].sort((a,b) => a.time - b.time);
-        const podium = document.getElementById('podium');
-        podium.innerHTML = '';
+    endRound: () => {
+        clearInterval(game.timerInterval);
+        const elapsed = (Date.now() - game.startTime) / 1000;
         
-        const order = [1, 0, 2];
-        order.forEach(i => {
-            if(sorted[i]) {
-                const p = sorted[i];
-                const div = document.createElement('div');
-                div.className = `podium-step rank-${i+1}`;
-                div.innerHTML = `
-                    <div class="name">${p.name}</div>
-                    <div class="bar"></div>
-                    <div>${p.time.toFixed(1)}s</div>
-                `;
-                podium.appendChild(div);
-            }
-        });
-    },
-
-    switchScreen: (id) => {
-        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-        if(id) document.getElementById(id).classList.add('active');
+        document.getElementById('result-name').innerText = game.playerName;
+        document.getElementById('result-time').innerText = elapsed.toFixed(2) + 's';
+        
+        game.showScreen('result');
+        playSound('win');
     }
 };
 
-// --- 3. Three.js Scene & Interaction ---
+document.getElementById('btn-start').onclick = game.startRound;
+
+// --- Three.js Setup ---
+const canvas = document.getElementById('canvas-container');
 const scene = new THREE.Scene();
-scene.background = new THREE.Color('#2c2c34'); // Match CSS background
+scene.background = new THREE.Color(COLORS.bg);
+scene.fog = new THREE.Fog(COLORS.bg, 20, 50);
 
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 1, 100);
-camera.position.set(0, 0, 15);
+camera.position.set(0, 7, 18); 
+camera.lookAt(0, 0, 0);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Softer shadows
-document.getElementById('canvas-container').appendChild(renderer.domElement);
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+canvas.appendChild(renderer.domElement);
 
-// Lighting (Soft Studio Light)
+// Lights
 const ambient = new THREE.AmbientLight(0xffffff, 0.6);
 scene.add(ambient);
-
 const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-dirLight.position.set(5, 10, 10);
+dirLight.position.set(5, 12, 8);
 dirLight.castShadow = true;
-dirLight.shadow.mapSize.width = 2048;
-dirLight.shadow.mapSize.height = 2048;
 scene.add(dirLight);
 
 // Materials (Matte Clay Look)
-const matParams = { roughness: 0.7, metalness: 0.0 };
-const matBlue = new THREE.MeshStandardMaterial({ color: '#86C1E3', ...matParams });
-const matPink = new THREE.MeshStandardMaterial({ color: '#FF8BA7', ...matParams });
-const matYellow = new THREE.MeshStandardMaterial({ color: '#F9D56E', ...matParams });
-const matWhite = new THREE.MeshStandardMaterial({ color: '#ffffff', ...matParams });
-const matDark = new THREE.MeshStandardMaterial({ color: '#333344', ...matParams });
+const mats = {
+    red: new THREE.MeshStandardMaterial({ color: COLORS.red, roughness: 0.6, metalness: 0.1 }),
+    gold: new THREE.MeshStandardMaterial({ color: COLORS.gold, roughness: 0.4, metalness: 0.6 }),
+    green: new THREE.MeshStandardMaterial({ color: COLORS.green, roughness: 0.8, metalness: 0.0 }),
+    brown: new THREE.MeshStandardMaterial({ color: COLORS.brown, roughness: 0.9 }),
+    white: new THREE.MeshStandardMaterial({ color: COLORS.white, roughness: 1.0 }),
+    icon: new THREE.MeshBasicMaterial({ color: COLORS.darkIcon })
+};
 
-// Targets (White Rounded Boxes with Icons)
+// --- Objects Builder ---
+const shapes = [];
+const particles = [];
 const targets = [];
+
+// 核心修改：用组合几何体创建更像的物体
+function createGeometry(type) {
+    const group = new THREE.Group();
+    
+    if (type === 'tree') {
+        // 1. Trunk
+        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.5), mats.brown);
+        trunk.position.y = -0.6;
+        trunk.castShadow = true;
+        group.add(trunk);
+
+        // 2. Layers of Leaves
+        const l1 = new THREE.Mesh(new THREE.ConeGeometry(0.6, 0.6, 8), mats.green);
+        l1.position.y = -0.3;
+        l1.castShadow = true;
+        group.add(l1);
+
+        const l2 = new THREE.Mesh(new THREE.ConeGeometry(0.5, 0.5, 8), mats.green);
+        l2.position.y = 0.0;
+        l2.castShadow = true;
+        group.add(l2);
+
+        const l3 = new THREE.Mesh(new THREE.ConeGeometry(0.35, 0.4, 8), mats.green);
+        l3.position.y = 0.3;
+        l3.castShadow = true;
+        group.add(l3);
+
+        // 3. Star on top
+        const star = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), mats.gold);
+        star.position.y = 0.55;
+        group.add(star);
+    } 
+    else if (type === 'bell') {
+        // 1. Bell Body (Open bottom)
+        const bell = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.5, 0.7, 16), mats.gold);
+        bell.castShadow = true;
+        group.add(bell);
+
+        // 2. Bell Rim (Torus)
+        const rim = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.05, 8, 16), mats.gold);
+        rim.rotation.x = Math.PI / 2;
+        rim.position.y = -0.35;
+        group.add(rim);
+
+        // 3. Handle (Top ring)
+        const handle = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.03, 8, 16), mats.gold);
+        handle.position.y = 0.35;
+        group.add(handle);
+
+        // 4. Clapper (Bottom ball)
+        const clapper = new THREE.Mesh(new THREE.SphereGeometry(0.15), mats.gold);
+        clapper.position.y = -0.3;
+        group.add(clapper);
+    } 
+    else if (type === 'ball') {
+        // 1. Red Sphere
+        const ball = new THREE.Mesh(new THREE.SphereGeometry(0.5, 32, 32), mats.red);
+        ball.castShadow = true;
+        group.add(ball);
+
+        // 2. Gold Cap
+        const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.15, 16), mats.gold);
+        cap.position.y = 0.5;
+        group.add(cap);
+
+        // 3. Ring
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.02, 8, 16), mats.gold);
+        ring.position.y = 0.6;
+        group.add(ring);
+    }
+    
+    return group;
+}
+
+// Create Targets (Boxes with Icons)
 function createTarget(x, type) {
     const group = new THREE.Group();
-    group.position.set(x, 0, 0);
+    group.position.set(x, -3.5, 0);
 
-    // White Box
-    const geo = new THREE.BoxGeometry(2, 2, 0.5);
-    const mesh = new THREE.Mesh(geo, matWhite);
-    mesh.receiveShadow = true;
-    group.add(mesh);
+    // Box Body
+    const box = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.2, 2.2), mats.white);
+    box.receiveShadow = true;
+    group.add(box);
 
-    // Icon
-    let iconGeo;
-    if(type === 'cube') iconGeo = new THREE.PlaneGeometry(0.8, 0.8); // Square
-    if(type === 'cone') iconGeo = new THREE.CircleGeometry(0.6, 3); // Triangle
-    if(type === 'sphere') iconGeo = new THREE.CircleGeometry(0.5, 32); // Circle
-    
-    const icon = new THREE.Mesh(iconGeo, matDark);
-    icon.position.z = 0.26;
-    if(type === 'cone') icon.rotation.z = Math.PI; // Adjust triangle orientation
+    // Icon representation
+    let icon;
+    if (type === 'tree') {
+        // Triangle Icon
+        icon = new THREE.Mesh(new THREE.ConeGeometry(0.5, 0.05, 3), mats.icon);
+        icon.rotation.x = -Math.PI / 2; // Lie flat
+        icon.rotation.z = Math.PI; // Point up
+    } 
+    else if (type === 'bell') {
+        // Bell Icon shape
+        icon = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.6, 0.05, 16), mats.icon);
+    } 
+    else {
+        // Circle Icon
+        icon = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.05, 32), mats.icon);
+    }
+
+    icon.position.y = 0.61;
     group.add(icon);
 
     scene.add(group);
-    targets.push({ x, type, mesh: group });
+    targets.push({ type, x, mesh: group });
 }
 
-// Position targets like the image: Square, Triangle, Circle
-createTarget(-3, 'cone'); 
-createTarget(0, 'cube');
-createTarget(3, 'sphere');
+// Floor
+const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(60, 60),
+    new THREE.MeshStandardMaterial({ color: COLORS.bg, roughness: 1 })
+);
+floor.rotation.x = -Math.PI/2;
+floor.position.y = -5;
+floor.receiveShadow = true;
+scene.add(floor);
 
-// Shapes
-let shapes = [];
-let particles = [];
-const shapeTypes = [
-    { type: 'cube', geo: new THREE.BoxGeometry(0.8, 0.8, 0.8), mat: matBlue },
-    { type: 'cone', geo: new THREE.ConeGeometry(0.5, 1, 32), mat: matPink },
-    { type: 'sphere', geo: new THREE.SphereGeometry(0.5, 32, 32), mat: matYellow }
-];
+createTarget(-3, 'tree');
+createTarget(0, 'bell');
+createTarget(3, 'ball');
 
+// Spawn Logic
 const scene3D = {
-    spawnShapes: () => {
-        // Clear old
-        shapes.forEach(s => scene.remove(s.mesh));
-        shapes = [];
-
-        // Spawn 10 shapes in a row above targets
-        for(let i=0; i<10; i++) {
-            const data = shapeTypes[Math.floor(Math.random() * 3)];
-            const mesh = new THREE.Mesh(data.geo, data.mat);
-            mesh.castShadow = true;
+    spawnShapes: (count) => {
+        const types = ['tree', 'bell', 'ball'];
+        
+        for(let i=0; i<count; i++) {
+            const type = types[Math.floor(Math.random() * types.length)];
+            const meshGroup = createGeometry(type);
             
-            // Random scatter start position
-            const startX = (Math.random() - 0.5) * 8;
-            const startY = 3 + Math.random() * 2;
+            // Random Pos
+            const posX = (Math.random() - 0.5) * 8; 
+            const posY = 3 + Math.random() * 4;  
+            const posZ = (Math.random() - 0.5) * 2; 
             
-            mesh.position.set(startX, startY, 0);
-            mesh.rotation.set(Math.random(), Math.random(), 0);
+            meshGroup.position.set(posX, posY, posZ);
+            // Random rotation
+            meshGroup.rotation.set(Math.random(), Math.random(), Math.random());
             
-            scene.add(mesh);
-            shapes.push({ mesh, type: data.type, active: true });
+            // User Data
+            meshGroup.userData = { type, originalPos: meshGroup.position.clone(), isReturning: false };
+            
+            scene.add(meshGroup);
+            shapes.push(meshGroup);
         }
     },
 
-    explode: (pos, color) => {
-        for(let i=0; i<8; i++) {
-            const geo = new THREE.BoxGeometry(0.1, 0.1, 0.1);
-            const mat = new THREE.MeshBasicMaterial({ color });
-            const p = new THREE.Mesh(geo, mat);
+    clearShapes: () => {
+        shapes.forEach(s => scene.remove(s));
+        shapes.length = 0;
+    },
+
+    createExplosion: (pos, color) => {
+        for(let i=0; i<10; i++) {
+            const p = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.15), new THREE.MeshBasicMaterial({color}));
             p.position.copy(pos);
-            scene.add(p);
-            particles.push({ 
-                mesh: p, 
-                vel: new THREE.Vector3((Math.random()-.5)*0.3, (Math.random()-.5)*0.3, 0),
+            p.position.x += (Math.random()-0.5);
+            p.position.y += (Math.random()-0.5);
+            p.userData = { 
+                vel: new THREE.Vector3((Math.random()-0.5)*0.2, (Math.random()-0.5)*0.2, (Math.random()-0.5)*0.2),
                 life: 1.0 
-            });
+            };
+            scene.add(p);
+            particles.push(p);
         }
     }
 };
 
-// --- 4. Mouse Interaction (Raycaster) ---
+// --- Interaction ---
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
-const dragPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0); // Z=0 plane
 let draggedObject = null;
-let offset = new THREE.Vector3();
 
-window.addEventListener('mousemove', (e) => {
-    mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
-    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+function onDown(x, y) {
+    mouse.x = (x / window.innerWidth) * 2 - 1;
+    mouse.y = -(y / window.innerHeight) * 2 + 1;
 
     raycaster.setFromCamera(mouse, camera);
+    
+    // Check intersection (recursive true to hit parts of groups)
+    const intersects = raycaster.intersectObjects(shapes, true);
 
-    if (draggedObject) {
-        const intersectPoint = new THREE.Vector3();
-        raycaster.ray.intersectPlane(dragPlane, intersectPoint);
-        draggedObject.mesh.position.copy(intersectPoint.sub(offset));
-        draggedObject.mesh.position.z = 1; // Lift up a bit
-        // Tilt effect
-        draggedObject.mesh.rotation.x = (draggedObject.mesh.position.y - intersectPoint.y) * 2;
-        draggedObject.mesh.rotation.z = (draggedObject.mesh.position.x - intersectPoint.x) * 2;
-    }
-});
-
-window.addEventListener('mousedown', () => {
-    const intersects = raycaster.intersectObjects(shapes.map(s => s.mesh));
     if (intersects.length > 0) {
-        const hit = intersects[0].object;
-        const shape = shapes.find(s => s.mesh === hit);
-        if (shape && shape.active) {
-            draggedObject = shape;
-            const intersectPoint = new THREE.Vector3();
-            raycaster.ray.intersectPlane(dragPlane, intersectPoint);
-            offset.copy(intersectPoint).sub(hit.position);
+        // We hit a child mesh, need to find the parent group
+        let obj = intersects[0].object;
+        while(obj.parent && obj.parent.type !== 'Scene') {
+            if(obj.userData.type) break; // Found the main group
+            obj = obj.parent;
         }
-    }
-});
-
-window.addEventListener('mouseup', () => {
-    if (draggedObject) {
-        checkDrop(draggedObject);
-        draggedObject = null;
-    }
-});
-
-// Touch Support (Simple mapping)
-window.addEventListener('touchstart', (e) => {
-    e.preventDefault(); // Prevent scrolling
-    const touch = e.touches[0];
-    mouse.x = (touch.clientX / window.innerWidth) * 2 - 1;
-    mouse.y = -(touch.clientY / window.innerHeight) * 2 + 1;
-    raycaster.setFromCamera(mouse, camera);
-    const intersects = raycaster.intersectObjects(shapes.map(s => s.mesh));
-    if (intersects.length > 0) {
-        const hit = intersects[0].object;
-        const shape = shapes.find(s => s.mesh === hit);
-        if(shape && shape.active) {
-            draggedObject = shape;
-            const intersectPoint = new THREE.Vector3();
-            raycaster.ray.intersectPlane(dragPlane, intersectPoint);
-            offset.copy(intersectPoint).sub(hit.position);
+        
+        // Ensure we grabbed the group with logic
+        if(obj.userData && obj.userData.type) {
+            draggedObject = obj;
+            draggedObject.userData.isReturning = false;
         }
-    }
-}, {passive: false});
-
-window.addEventListener('touchmove', (e) => {
-    e.preventDefault();
-    if(draggedObject) {
-        const touch = e.touches[0];
-        mouse.x = (touch.clientX / window.innerWidth) * 2 - 1;
-        mouse.y = -(touch.clientY / window.innerHeight) * 2 + 1;
-        raycaster.setFromCamera(mouse, camera);
-        const intersectPoint = new THREE.Vector3();
-        raycaster.ray.intersectPlane(dragPlane, intersectPoint);
-        draggedObject.mesh.position.copy(intersectPoint.sub(offset));
-    }
-}, {passive: false});
-
-window.addEventListener('touchend', () => {
-    if(draggedObject) {
-        checkDrop(draggedObject);
-        draggedObject = null;
-    }
-});
-
-function checkDrop(shape) {
-    let dropped = false;
-    targets.forEach(t => {
-        // Distance check
-        const dist = shape.mesh.position.distanceTo(new THREE.Vector3(t.x, 0, 0));
-        if (dist < 1.2 && shape.type === t.type) {
-            // Success
-            scene3D.explode(shape.mesh.position, shape.mesh.material.color);
-            scene.remove(shape.mesh);
-            shape.active = false;
-            game.scorePoint();
-            dropped = true;
-            // Target animation
-            t.mesh.scale.set(1.1, 1.1, 1.1);
-            setTimeout(() => t.mesh.scale.set(1, 1, 1), 150);
-        }
-    });
-
-    if (!dropped) {
-        // Bounce back if wrong
-        shape.mesh.position.z = 0;
     }
 }
 
-// --- 5. Loop ---
+function onMove(x, y) {
+    if (!draggedObject) return;
+
+    mouse.x = (x / window.innerWidth) * 2 - 1;
+    mouse.y = -(y / window.innerHeight) * 2 + 1;
+
+    raycaster.setFromCamera(mouse, camera);
+    const intersectPoint = new THREE.Vector3();
+    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+    raycaster.ray.intersectPlane(plane, intersectPoint);
+    
+    if (intersectPoint) {
+        draggedObject.position.copy(intersectPoint);
+        draggedObject.position.z = 2; // Pull forward
+        draggedObject.rotation.x += 0.05;
+        draggedObject.rotation.y += 0.05;
+    }
+}
+
+function onUp() {
+    if (!draggedObject) return;
+
+    let match = false;
+    for (const t of targets) {
+        const dx = draggedObject.position.x - t.x;
+        const dy = draggedObject.position.y - t.mesh.position.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        
+        if (dist < 1.8 && draggedObject.userData.type === t.type) {
+            match = true;
+            game.onShapeSorted();
+            
+            // Explosion color
+            let color = COLORS.white;
+            if(draggedObject.userData.type === 'tree') color = COLORS.green;
+            if(draggedObject.userData.type === 'bell') color = COLORS.gold;
+            if(draggedObject.userData.type === 'ball') color = COLORS.red;
+
+            scene3D.createExplosion(draggedObject.position, color);
+            scene.remove(draggedObject);
+            shapes.splice(shapes.indexOf(draggedObject), 1);
+            
+            t.mesh.scale.set(1.2, 0.8, 1.2);
+            break;
+        }
+    }
+
+    if (!match) {
+        draggedObject.userData.isReturning = true;
+    }
+
+    draggedObject = null;
+}
+
+window.addEventListener('mousedown', e => onDown(e.clientX, e.clientY));
+window.addEventListener('mousemove', e => onMove(e.clientX, e.clientY));
+window.addEventListener('mouseup', onUp);
+window.addEventListener('touchstart', e => { e.preventDefault(); onDown(e.touches[0].clientX, e.touches[0].clientY); }, {passive: false});
+window.addEventListener('touchmove', e => { e.preventDefault(); onMove(e.touches[0].clientX, e.touches[0].clientY); }, {passive: false});
+window.addEventListener('touchend', onUp);
+
+// --- Animation Loop ---
 function animate() {
     requestAnimationFrame(animate);
-    
-    // Rotate shapes slightly
+
     shapes.forEach(s => {
-        if(s.active && s !== draggedObject) {
-            s.mesh.rotation.y += 0.01;
+        if (s === draggedObject) return;
+        if (s.userData.isReturning) {
+            s.position.lerp(s.userData.originalPos, 0.1);
+            if (s.position.distanceTo(s.userData.originalPos) < 0.1) s.userData.isReturning = false;
+        } else {
+            s.position.y += Math.sin(Date.now() * 0.002 + s.position.x * 10) * 0.002;
+            s.rotation.z += 0.002;
         }
     });
 
-    // Particles
-    for(let i=particles.length-1; i>=0; i--) {
+    targets.forEach(t => t.mesh.scale.lerp(new THREE.Vector3(1, 1, 1), 0.1));
+
+    for (let i = particles.length - 1; i >= 0; i--) {
         const p = particles[i];
-        p.mesh.position.add(p.vel);
-        p.mesh.scale.multiplyScalar(0.9);
-        p.life -= 0.05;
-        if(p.life <= 0) {
-            scene.remove(p.mesh);
-            particles.splice(i,1);
+        p.position.add(p.userData.vel);
+        p.scale.multiplyScalar(0.92);
+        p.userData.life -= 0.05;
+        if (p.userData.life <= 0) {
+            scene.remove(p);
+            particles.splice(i, 1);
         }
     }
 
     renderer.render(scene, camera);
 }
 
-// Init
-game.init();
-animate();
-
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
 });
+
+game.init();
+animate();
